@@ -6,7 +6,6 @@ from typing import Optional
 class ScrapeRequest(BaseModel):
     """スクレイピングリクエスト"""
     urls: list[str]
-    threshold: int = 30
 
 
 class ScrapedData(BaseModel):
@@ -23,12 +22,13 @@ class ScrapedData(BaseModel):
 
 
 class ScoringResult(BaseModel):
-    """スコアリング結果"""
+    """判定結果"""
     url: str
     company_name: str = ""
     classification: str = ""  # インバウンド / 非インバウンド / タイムアウト / 取得不可（SPA）
-    score: int = 0
-    matched_keywords: list[str] = []
+    score: int = 0  # 該当条件数（0〜4）
+    matched_keywords: list[str] = []  # 根拠キーワード
+    met_conditions: list[str] = []  # 該当した条件（A〜D）
     hreflang_langs: list[str] = []
     processed_at: str = ""
     status: str = "success"  # success / timeout / spa / skip

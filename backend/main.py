@@ -51,7 +51,6 @@ async def judge_urls(request: ScrapeRequest) -> StreamingResponse:
 
     async def event_stream() -> AsyncGenerator[str, None]:
         urls = request.urls
-        threshold = request.threshold
         total = len(urls)
         completed = 0
         inbound_count = 0
@@ -105,7 +104,7 @@ async def judge_urls(request: ScrapeRequest) -> StreamingResponse:
                     completed += 1
                     return None
                 else:
-                    result = calculate_score(scraped_data, threshold)
+                    result = calculate_score(scraped_data)
 
                     if result.classification == "インバウンド":
                         inbound_count += 1
@@ -183,8 +182,8 @@ def _build_csv(results: list[ScoringResult], filter_type: str = "all") -> str:
 
     writer = csv.writer(output)
     writer.writerow([
-        "url", "company_name", "classification", "score",
-        "matched_keywords", "hreflang_langs", "processed_at"
+        "url", "company_name", "classification", "met_conditions",
+        "evidence_keywords", "hreflang_langs", "processed_at"
     ])
 
     for r in results:
@@ -201,7 +200,7 @@ def _build_csv(results: list[ScoringResult], filter_type: str = "all") -> str:
             r.url,
             r.company_name,
             r.classification,
-            r.score,
+            " / ".join(r.met_conditions),
             ",".join(r.matched_keywords),
             ",".join(r.hreflang_langs),
             r.processed_at

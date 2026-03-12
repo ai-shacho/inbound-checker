@@ -5,13 +5,14 @@ import { useState, useRef, useEffect, useCallback } from "react";
 // APIのベースURL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// スコアリング結果の型定義
+// 判定結果の型定義
 interface ScoringResult {
   url: string;
   company_name: string;
   classification: string;
-  score: number;
+  score: number; // 該当条件数（0〜4）
   matched_keywords: string[];
+  met_conditions: string[];
   hreflang_langs: string[];
   processed_at: string;
   status: string;
@@ -30,9 +31,7 @@ interface ProgressEvent {
 }
 
 export default function Home() {
-  // 状態管理
   const [urlText, setUrlText] = useState<string>("");
-  const [threshold, setThreshold] = useState<number>(30);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [results, setResults] = useState<ScoringResult[]>([]);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
@@ -53,7 +52,7 @@ export default function Home() {
   const timeoutCount = results.filter((r) => r.status === "timeout").length;
   const spaCount = results.filter((r) => r.status === "spa").length;
 
-  // コールドスタート対策：初期表示時にヘルスチェック
+  // コールドスタート対策
   useEffect(() => {
     fetch(`${API_URL}/health`)
       .then((res) => {
@@ -86,7 +85,7 @@ export default function Home() {
       const response = await fetch(`${API_URL}/api/judge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls, threshold }),
+        body: JSON.stringify({ urls }),
         signal: controller.signal,
       });
 
@@ -114,7 +113,6 @@ export default function Home() {
           try {
             const event = JSON.parse(jsonStr);
 
-            // セッションID受信
             if (event.session_id && !event.done) {
               setSessionId(event.session_id);
               continue;
@@ -122,7 +120,6 @@ export default function Home() {
 
             const progressEvent = event as ProgressEvent;
 
-            // 結果を蓄積
             if (progressEvent.result) {
               setResults((prev) => [...prev, progressEvent.result!]);
             }
@@ -147,7 +144,7 @@ export default function Home() {
     } finally {
       setIsProcessing(false);
     }
-  }, [urlText, threshold]);
+  }, [urlText]);
 
   // キャンセル
   const handleCancel = useCallback(async () => {
@@ -183,11 +180,13 @@ export default function Home() {
     }
   };
 
-  // スコアバーの色
-  const getScoreBarColor = (score: number): string => {
-    if (score >= 60) return "bg-green-500";
-    if (score >= 30) return "bg-yellow-500";
-    return "bg-gray-300";
+  // 条件バッジの色
+  const getConditionColor = (condition: string): string => {
+    if (condition.startsWith("A:")) return "bg-blue-100 text-blue-700";
+    if (condition.startsWith("B:")) return "bg-purple-100 text-purple-700";
+    if (condition.startsWith("C:")) return "bg-teal-100 text-teal-700";
+    if (condition.startsWith("D:")) return "bg-amber-100 text-amber-700";
+    return "bg-gray-100 text-gray-600";
   };
 
   return (
@@ -197,9 +196,32 @@ export default function Home() {
         <h1 className="text-2xl font-bold text-center mb-2">
           インバウンド企業判定システム
         </h1>
-        <p className="text-center text-gray-500 text-sm mb-8">
+        <p className="text-center text-gray-500 text-sm mb-6">
           企業HPのURLからインバウンド企業かどうかを自動判定します
         </p>
+
+        {/* 判定基準の説明 */}
+        <div className="bg-white rounded-lg shadow-sm border p-5 mb-6">
+          <h2 className="text-sm font-bold text-gray-700 mb-3">判定基準：以下のいずれか1つ以上に該当すればインバウンド企業と判定</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
+            <div className="flex items-start gap-2">
+              <span className="inline-block px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium shrink-0">A</span>
+              <span>HP上で訪日外国人を対象とした事業を明示的に宣言している</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="inline-block px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium shrink-0">B</span>
+              <span>免税・多言語ガイド・海外決済等、訪日外国人向け専用サービスを提供</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="inline-block px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 font-medium shrink-0">C</span>
+              <span>観光・宿泊業に属し、かつ実質的な多言語対応を行っている</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium shrink-0">D</span>
+              <span>インバウンド集客・マーケティング支援を事業として行っている</span>
+            </div>
+          </div>
+        </div>
 
         {/* APIステータス */}
         {apiStatus === "checking" && (
@@ -230,29 +252,6 @@ export default function Home() {
             {urlCount > 1000 && (
               <span className="text-red-500 ml-2">（1000件を超えた分は無視されます）</span>
             )}
-          </div>
-        </div>
-
-        {/* 判定感度スライダー */}
-        <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-3">
-            判定感度：高め（10）← →  厳しめ（60）
-          </label>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-500 whitespace-nowrap">高め (10)</span>
-            <input
-              type="range"
-              min={10}
-              max={60}
-              value={threshold}
-              onChange={(e) => setThreshold(Number(e.target.value))}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
-              disabled={isProcessing}
-            />
-            <span className="text-xs text-gray-500 whitespace-nowrap">厳しめ (60)</span>
-          </div>
-          <div className="text-center mt-2 text-sm text-gray-600">
-            閾値：<span className="font-bold text-blue-600">{threshold}</span> 点以上をインバウンド企業と判定
           </div>
         </div>
 
@@ -357,8 +356,8 @@ export default function Home() {
                     <th className="text-left px-4 py-3 font-medium text-gray-600">URL</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">企業名</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">判定</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600 w-32">スコア</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600">キーワード</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">該当条件</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">根拠</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -383,14 +382,19 @@ export default function Home() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
-                            <div
-                              className={`h-2 rounded-full ${getScoreBarColor(r.score)}`}
-                              style={{ width: `${r.score}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-gray-500">{r.score}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {r.met_conditions && r.met_conditions.length > 0 ? (
+                            r.met_conditions.map((cond, j) => (
+                              <span
+                                key={j}
+                                className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${getConditionColor(cond)}`}
+                              >
+                                {cond.split(":")[0]}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-gray-400">-</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 max-w-[200px] truncate text-xs text-gray-500">
