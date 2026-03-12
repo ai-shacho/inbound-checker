@@ -2,7 +2,11 @@
 インバウンド企業判定ロジック（定義ベース）
 
 【インバウンド企業の定義】
-以下4つの条件のうち、いずれか1つ以上を満たす企業をインバウンド企業と判定する。
+訪日外国人に対して直接サービスを提供する企業をインバウンド企業と判定する。
+以下3つの条件のうち、いずれか1つ以上を満たすことが必要。
+
+※ インバウンド支援事業（マーケティング支援、観光誘致コンサル等）は
+  訪日外国人に直接サービスを提供するわけではないため対象外とする。
 
 条件A: インバウンド事業の明示宣言
   → HP上で「インバウンド」「訪日外国人」等のキーワードを用いて、
@@ -17,10 +21,6 @@
   → ホテル・旅館・ゲストハウス・ツアー等の観光関連業種に属し、
     かつhreflangタグ・言語切替リンク・Google Translate等による
     実質的な多言語対応を行っている。
-
-条件D: インバウンド集客・マーケティング支援事業
-  → インバウンドマーケティング、訪日促進支援、観光誘致、DMO等、
-    インバウンド集客や支援を事業として行っている。
 """
 from models import ScrapedData, ScoringResult
 from datetime import datetime, timezone, timedelta
@@ -70,14 +70,6 @@ CONDITION_C_INDUSTRY_KEYWORDS = [
     "travel guide", "tour guide", "hotel", "hostel", "guesthouse",
 ]
 
-# --- 条件D: インバウンド支援事業キーワード ---
-CONDITION_D_KEYWORDS = [
-    "インバウンドマーケティング", "訪日促進", "訪日促進支援",
-    "観光誘致", "観光振興", "観光促進", "観光PR",
-    "DMO", "外国人旅行",
-    "inbound marketing", "inbound",
-]
-
 
 def _contains_any(text: str, keywords: list[str]) -> list[str]:
     """テキスト中に含まれるキーワードのリストを返す"""
@@ -103,8 +95,7 @@ def _has_multilingual_support(data: ScrapedData) -> bool:
 def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
     """
     インバウンド企業の定義に基づいて判定する。
-    4条件のうち1つでも該当すればインバウンド企業と判定。
-    thresholdパラメータは後方互換のため残すが使用しない。
+    3条件(A/B/C)のうち1つでも該当すればインバウンド企業と判定。
     """
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S")
@@ -145,14 +136,6 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
         if data.has_google_translate:
             evidence.append("Google Translate")
 
-    # --- 条件D: インバウンド支援事業 ---
-    matched_d = _contains_any(full_text, CONDITION_D_KEYWORDS)
-    # 「inbound」単体は汎用的すぎるため、他のD条件キーワードも必要
-    d_without_generic = [kw for kw in matched_d if kw.lower() != "inbound"]
-    if d_without_generic:
-        met_conditions.append("D:インバウンド支援事業")
-        evidence.extend(d_without_generic[:3])
-
     # --- 判定 ---
     is_inbound = len(met_conditions) > 0
 
@@ -177,7 +160,7 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
         url=data.url,
         company_name=company_name,
         classification="インバウンド" if is_inbound else "非インバウンド",
-        score=len(met_conditions),  # 該当条件数（0〜4）
+        score=len(met_conditions),  # 該当条件数（0〜3）
         matched_keywords=unique_evidence,
         met_conditions=met_conditions,
         hreflang_langs=data.hreflang_langs,

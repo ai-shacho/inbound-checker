@@ -185,7 +185,6 @@ export default function Home() {
     if (condition.startsWith("A:")) return "bg-blue-100 text-blue-700";
     if (condition.startsWith("B:")) return "bg-purple-100 text-purple-700";
     if (condition.startsWith("C:")) return "bg-teal-100 text-teal-700";
-    if (condition.startsWith("D:")) return "bg-amber-100 text-amber-700";
     return "bg-gray-100 text-gray-600";
   };
 
@@ -203,7 +202,8 @@ export default function Home() {
         {/* 判定基準の説明 */}
         <div className="bg-white rounded-lg shadow-sm border p-5 mb-6">
           <h2 className="text-sm font-bold text-gray-700 mb-3">判定基準：以下のいずれか1つ以上に該当すればインバウンド企業と判定</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
+          <p className="text-xs text-gray-400 mb-3">※ インバウンド支援事業（マーケティング支援、観光誘致コンサル等）は対象外</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-600">
             <div className="flex items-start gap-2">
               <span className="inline-block px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium shrink-0">A</span>
               <span>HP上で訪日外国人を対象とした事業を明示的に宣言している</span>
@@ -215,10 +215,6 @@ export default function Home() {
             <div className="flex items-start gap-2">
               <span className="inline-block px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 font-medium shrink-0">C</span>
               <span>観光・宿泊業に属し、かつ実質的な多言語対応を行っている</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium shrink-0">D</span>
-              <span>インバウンド集客・マーケティング支援を事業として行っている</span>
             </div>
           </div>
         </div>
