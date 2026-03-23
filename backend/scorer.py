@@ -239,6 +239,11 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
             met_conditions.append("E:複数観光プラットフォーム掲載")
             evidence.extend(matched_e[:3])
 
+    # --- 条件G: 言語サブページが存在する ---
+    if data.found_language_subpages:
+        met_conditions.append(f"G:言語サブページ({','.join(data.found_language_subpages[:3])})")
+        evidence.extend(data.found_language_subpages[:3])
+
     # --- 条件F: 観光業種 × 英語テキストが豊富 ---
     if matched_c_industry and not met_conditions:
         # まだどの条件にも該当していない観光業種のみ追加チェック

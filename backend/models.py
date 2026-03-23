@@ -19,6 +19,7 @@ class ScrapedData(BaseModel):
     html_lang: str = ""
     has_google_translate: bool = False
     has_language_switcher: bool = False
+    found_language_subpages: list[str] = []  # 存在した言語サブパス一覧
 
 
 class ScoringResult(BaseModel):

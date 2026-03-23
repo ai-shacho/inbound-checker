@@ -15,11 +15,82 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
+# 言語別サブパスリスト（存在確認用）
+LANGUAGE_SUBPATHS = [
+    "/en", "/en/",
+    "/english", "/english/",
+    "/zh", "/zh/", "/zh-cn", "/zh-cn/", "/zh-tw", "/zh-tw/",
+    "/chinese", "/chinese/",
+    "/ko", "/ko/",
+    "/korean", "/korean/",
+    "/fr", "/fr/",
+    "/lang/en", "/lang/zh", "/lang/ko",
+    "/language/en", "/language/zh",
+]
+
 # 言語切替テキストのパターン
 LANGUAGE_SWITCH_PATTERNS = re.compile(
     r'\b(EN|English|ENGLISH|中文|한국어|繁體|简体|Français|Chinese|Korean|French)\b',
     re.IGNORECASE
 )
+
+
+async def _check_language_subpages(base_url: str, semaphore: asyncio.Semaphore) -> list[str]:
+    """
+    ベースURLに対して言語別サブパスが存在するか並列チェックする。
+    リダイレクト先が別ドメインの場合はカウントしない。
+    HEADリクエストが拒否（405等）された場合はGETにフォールバック（最大2KB取得）。
+    """
+    from urllib.parse import urlparse
+
+    base_parsed = urlparse(base_url)
+    base_domain = base_parsed.netloc
+
+    async def check_one(path: str) -> Optional[str]:
+        target_url = f"{base_parsed.scheme}://{base_domain}{path}"
+        async with semaphore:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(5.0),
+                    follow_redirects=False,
+                    verify=False,
+                    headers={"User-Agent": USER_AGENT}
+                ) as client:
+                    # まずHEADリクエストを試みる
+                    try:
+                        resp = await client.head(target_url)
+                    except Exception:
+                        return None
+
+                    # HEADが許可されていない場合はGETにフォールバック
+                    if resp.status_code == 405:
+                        try:
+                            resp = await client.get(target_url, headers={"Range": "bytes=0-2047"})
+                        except Exception:
+                            return None
+
+                    # リダイレクトの場合、別ドメインへのリダイレクトはカウントしない
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        location = resp.headers.get("location", "")
+                        if location:
+                            redir_parsed = urlparse(location)
+                            # 絶対URLの場合はドメインを確認
+                            if redir_parsed.netloc and redir_parsed.netloc != base_domain:
+                                return None
+                        # 同一ドメインへのリダイレクトはOK（存在とみなす）
+                        return path
+
+                    # 200〜399 なら存在するとみなす
+                    if 200 <= resp.status_code <= 399:
+                        return path
+
+                    return None
+            except Exception:
+                return None
+
+    tasks = [check_one(path) for path in LANGUAGE_SUBPATHS]
+    results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
 
 
 async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[ScrapedData], str]:
@@ -149,6 +220,9 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
                 if has_language_switcher:
                     break
 
+        # サブページ言語チェック（並列実行）
+        found_language_subpages = await _check_language_subpages(url, semaphore)
+
         return ScrapedData(
             url=url,
             title=title,
@@ -159,4 +233,5 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
             html_lang=html_lang,
             has_google_translate=has_google_translate,
             has_language_switcher=has_language_switcher,
+            found_language_subpages=found_language_subpages,
         ), "success"
