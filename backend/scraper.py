@@ -127,7 +127,27 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
                 elif "charset=euc-jp" in content_type.lower():
                     html = response.content.decode("euc-jp", errors="replace")
                 else:
-                    html = response.text
+                    # Content-Typeヘッダーにcharsetがない場合、HTML内のmetaタグから検出
+                    if not any(x in content_type.lower() for x in ["charset=shift_jis","charset=sjis","charset=euc-jp"]):
+                        raw = response.content
+                        # <meta charset="..."> または <meta http-equiv="Content-Type" content="...charset=...">
+                        charset_match = re.search(
+                            rb'<meta[^>]+charset=["\']?([A-Za-z0-9_\-]+)',
+                            raw[:2048],
+                            re.IGNORECASE
+                        )
+                        if charset_match:
+                            detected = charset_match.group(1).decode("ascii", errors="ignore").lower()
+                            if detected in ("shift_jis", "shift-jis", "sjis", "x-sjis"):
+                                html = raw.decode("shift_jis", errors="replace")
+                            elif detected in ("euc-jp", "euc_jp"):
+                                html = raw.decode("euc-jp", errors="replace")
+                            else:
+                                html = response.text
+                        else:
+                            html = response.text
+                    else:
+                        html = response.text
 
         except httpx.TimeoutException:
             return None, "timeout"
@@ -161,6 +181,18 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
         meta_tag = soup.find("meta", attrs={"name": "description"})
         if meta_tag and meta_tag.get("content"):
             meta_desc = meta_tag["content"]
+
+        # meta keywords タグ（<meta name="keywords" content="...">）
+        meta_keywords = ""
+        kw_tag = soup.find("meta", attrs={"name": re.compile(r'^keywords$', re.IGNORECASE)})
+        if kw_tag and kw_tag.get("content"):
+            meta_keywords = kw_tag["content"]
+
+        # Open Graph description（<meta property="og:description" content="...">）
+        og_desc = ""
+        og_tag = soup.find("meta", attrs={"property": "og:description"})
+        if og_tag and og_tag.get("content"):
+            og_desc = og_tag["content"]
 
         # hreflangタグ一覧
         hreflang_langs: list[str] = []
@@ -227,6 +259,8 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
             url=url,
             title=title,
             meta_description=meta_desc,
+            meta_keywords=meta_keywords,
+            og_description=og_desc,
             hreflang_langs=hreflang_langs,
             body_text=body_text,
             nav_header_text=nav_header_text,

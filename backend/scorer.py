@@ -31,7 +31,7 @@ CONDITION_A_KEYWORDS = [
     "海外旅行者", "海外観光客",
     "着地型旅行",
     # 英語
-    "inbound tourism", "inbound travel", "visit japan", "visiting japan",
+    "inbound", "inbound tourism", "inbound travel", "visit japan", "visiting japan",
     "welcome to japan", "foreign visitors", "foreign tourists",
     "international visitors", "overseas tourists", "overseas visitors",
     "accommodation for foreigners",
@@ -211,7 +211,13 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
     # --- 条件A: インバウンド事業の明示宣言 ---
     # タイトル・メタ・ナビ/ヘッダーに含まれる場合は強いシグナル（1件で成立）
     # ボディのみの場合は記事・ニュースで言及されているだけの可能性があるため2件以上必要
-    prominent_text = " ".join([data.title, data.meta_description, data.nav_header_text])
+    prominent_text = " ".join([
+        data.title,
+        data.meta_description,
+        data.meta_keywords,
+        data.og_description,
+        data.nav_header_text
+    ])
     matched_a_prominent = _contains_any(prominent_text, CONDITION_A_KEYWORDS)
     matched_a_body = _contains_any(data.body_text, CONDITION_A_KEYWORDS)
 
@@ -227,6 +233,12 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
     # --- 条件B: 訪日外国人向け専用サービス ---
     matched_b_high = _contains_any(full_text, CONDITION_B_HIGH)
     matched_b_medium = _contains_any(full_text, CONDITION_B_MEDIUM)
+
+    # タイトル・メタに「免税」単体があれば HIGH 判定として扱う
+    prominent_lower = prominent_text.lower()
+    if "免税" in prominent_lower and not any("免税" in kw for kw in matched_b_high):
+        matched_b_high = list(matched_b_high) + ["免税(タイトル/メタ)"]
+
     if matched_b_high:
         met_conditions.append("B:訪日外国人向けサービス(HIGH)")
         evidence.extend(matched_b_high[:3])

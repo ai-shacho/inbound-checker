@@ -13,6 +13,8 @@ class ScrapedData(BaseModel):
     url: str
     title: str = ""
     meta_description: str = ""
+    meta_keywords: str = ""
+    og_description: str = ""
     hreflang_langs: list[str] = []
     body_text: str = ""
     nav_header_text: str = ""
