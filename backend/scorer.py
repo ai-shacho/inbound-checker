@@ -45,8 +45,7 @@ CONDITION_B_HIGH = [
     # 免税（外国人旅行者のみ対象のサービス）
     "免税対応", "免税店", "免税手続き", "免税品",
     "tax free", "duty free", "tax-free", "tax free shopping",
-    # 外国人特化サービス
-    "空港送迎",
+    # 外国人特化サービス（空港送迎は海外旅行でも使うのでMEDIUMへ移動）
     "ビザサポート", "ビザ申請",
     "ハラール対応", "ハラール", "halal",
     "コーシャ", "ベジタリアン対応",
@@ -75,6 +74,7 @@ CONDITION_B_MEDIUM = [
     "バイリンガル",
     "観光ガイド", "ツアーガイド",
     "外国語", "多言語",
+    "空港送迎",  # 海外旅行でも使う語のため単独では不十分、2件以上の組み合わせで判定
 ]
 
 # --- 条件C: 観光・宿泊業の業種キーワード ---
@@ -209,10 +209,20 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
     is_hr_site = bool(_contains_any(full_text, NEGATIVE_KEYWORDS))
 
     # --- 条件A: インバウンド事業の明示宣言 ---
-    matched_a = _contains_any(full_text, CONDITION_A_KEYWORDS)
-    if matched_a:
+    # タイトル・メタ・ナビ/ヘッダーに含まれる場合は強いシグナル（1件で成立）
+    # ボディのみの場合は記事・ニュースで言及されているだけの可能性があるため2件以上必要
+    prominent_text = " ".join([data.title, data.meta_description, data.nav_header_text])
+    matched_a_prominent = _contains_any(prominent_text, CONDITION_A_KEYWORDS)
+    matched_a_body = _contains_any(data.body_text, CONDITION_A_KEYWORDS)
+
+    if matched_a_prominent:
+        # タイトル・メタ・ナビに出現 → 1件で成立
+        # （自社がインバウンド事業であることを正面に打ち出している）
         met_conditions.append("A:インバウンド事業の明示")
-        evidence.extend(matched_a[:3])
+        evidence.extend(matched_a_prominent[:3])
+    # ボディのみの場合は条件Aとしては判定しない
+    # → ニュースサイト・ブログ・業界メディアが記事の中でキーワードを使うケースを排除
+    # → ボディ内キーワードは他条件（B〜G）との組み合わせで間接的にカバー
 
     # --- 条件B: 訪日外国人向け専用サービス ---
     matched_b_high = _contains_any(full_text, CONDITION_B_HIGH)
