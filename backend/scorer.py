@@ -263,19 +263,11 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
             evidence.extend(matched_e[:3])
 
     # --- 条件G: 言語サブページ × 観光・宿泊業種 ---
-    # 大企業も英語ページを持つため、観光業種との組み合わせを必須とする
-    # ただし /zh/ /ko/ など日本語以外の東アジア言語ページは訪日外国人向けとして単独可
-    if data.found_language_subpages and not is_hr_site:
-        inbound_lang_paths = [p for p in data.found_language_subpages
-                              if any(seg in p for seg in ["/zh", "/ko", "/chinese", "/korean"])]
-        if inbound_lang_paths:
-            # 中国語・韓国語サブページは訪日インバウンド向けの強いシグナル（単独可）
-            met_conditions.append(f"G:アジア言語サブページ({','.join(inbound_lang_paths[:3])})")
-            evidence.extend(inbound_lang_paths[:3])
-        elif effective_c_industry:
-            # 英語サブページは観光業種との組み合わせでのみ判定
-            met_conditions.append(f"G:観光業×言語サブページ({','.join(data.found_language_subpages[:3])})")
-            evidence.extend(data.found_language_subpages[:3])
+    # 大企業（SoftBank, Toyota等）も /zh/ /ko/ /en/ を持つため、
+    # 観光・宿泊業種との組み合わせを必須とする（業種不問での単独判定は誤検知の原因）
+    if data.found_language_subpages and effective_c_industry and not is_hr_site:
+        met_conditions.append(f"G:観光業×言語サブページ({','.join(data.found_language_subpages[:3])})")
+        evidence.extend(data.found_language_subpages[:3])
 
     # --- 条件F: 観光業種 × 英語テキストが豊富 ---
     if matched_c_industry and not met_conditions:
