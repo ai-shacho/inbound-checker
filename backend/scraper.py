@@ -49,7 +49,14 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
                 if response.status_code >= 400:
                     return None, "skip"
 
-                html = response.text
+                # Content-Typeヘッダーのcharsetを確認して適切にデコード
+                content_type = response.headers.get("content-type", "")
+                if "charset=shift_jis" in content_type.lower() or "charset=sjis" in content_type.lower():
+                    html = response.content.decode("shift_jis", errors="replace")
+                elif "charset=euc-jp" in content_type.lower():
+                    html = response.content.decode("euc-jp", errors="replace")
+                else:
+                    html = response.text
 
         except httpx.TimeoutException:
             return None, "timeout"
@@ -69,10 +76,10 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
             # scriptとstyleタグを除去
             for tag in soup.body.find_all(["script", "style"]):
                 tag.decompose()
-            body_text = soup.body.get_text(separator=" ", strip=True)[:5000]
+            body_text = soup.body.get_text(separator=" ", strip=True)[:10000]
 
-        # テキストが200文字未満の場合はSPAと判断
-        if len(body_text) < 200:
+        # テキストが100文字未満の場合はSPAと判断
+        if len(body_text) < 100:
             return None, "spa"
 
         # ページタイトル
@@ -91,10 +98,14 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
             if lang and lang not in hreflang_langs:
                 hreflang_langs.append(lang)
 
-        # navタグとheaderタグの内容
+        # navタグ・headerタグ・footerタグ・language系div/ulの内容
         nav_header_text = ""
-        for tag_name in ["nav", "header"]:
+        for tag_name in ["nav", "header", "footer"]:
             for tag in soup.find_all(tag_name):
+                nav_header_text += " " + tag.get_text(separator=" ", strip=True)
+        # language系クラスのdiv/ul
+        for selector_class in ["language", "lang", "lang-switcher", "language-switcher"]:
+            for tag in soup.find_all(["div", "ul"], class_=re.compile(selector_class, re.IGNORECASE)):
                 nav_header_text += " " + tag.get_text(separator=" ", strip=True)
 
         # html要素のlang属性
@@ -110,9 +121,9 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
             or "googletranslate" in html.lower().replace(" ", "")
         )
 
-        # 言語切替リンクの検出（navとheader内のaタグ）
+        # 言語切替リンクの検出（nav・header・footer・language系divも対象）
         has_language_switcher = False
-        for tag_name in ["nav", "header"]:
+        for tag_name in ["nav", "header", "footer"]:
             for container in soup.find_all(tag_name):
                 for a_tag in container.find_all("a"):
                     link_text = a_tag.get_text(strip=True)
@@ -123,6 +134,20 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
                     break
             if has_language_switcher:
                 break
+
+        # language系クラスのdiv/ulも確認
+        if not has_language_switcher:
+            for selector_class in ["language", "lang", "lang-switcher", "language-switcher"]:
+                for container in soup.find_all(["div", "ul"], class_=re.compile(selector_class, re.IGNORECASE)):
+                    for a_tag in container.find_all("a"):
+                        link_text = a_tag.get_text(strip=True)
+                        if LANGUAGE_SWITCH_PATTERNS.search(link_text):
+                            has_language_switcher = True
+                            break
+                    if has_language_switcher:
+                        break
+                if has_language_switcher:
+                    break
 
         return ScrapedData(
             url=url,
