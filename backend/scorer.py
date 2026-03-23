@@ -78,12 +78,29 @@ CONDITION_B_MEDIUM = [
 ]
 
 # --- 条件C: 観光・宿泊業の業種キーワード ---
+# 注: 「宿泊」「旅行」「観光」単体は汎用すぎるため、より具体的なキーワードを優先
 CONDITION_C_INDUSTRY_KEYWORDS = [
     "ホテル", "旅館", "民泊", "ゲストハウス", "ホステル",
-    "旅行代理店", "ツアー", "観光バス", "観光ガイド", "ツアーガイド",
-    "観光", "宿泊", "旅行", "sightseeing", "tourism",
+    "旅行代理店", "観光バス", "観光ガイド", "ツアーガイド",
+    "sightseeing", "tourism",
     "travel guide", "tour guide", "hotel", "hostel", "guesthouse", "ryokan",
     "貸し部屋", "貸部屋",
+]
+
+# 汎用的すぎる業種語（単独では判定に使わない、補助的に使用）
+CONDITION_C_GENERIC_KEYWORDS = [
+    "宿泊施設", "宿泊業", "宿泊サービス",
+    "旅行業", "旅行会社", "旅行サービス",
+    "観光施設", "観光業", "観光地",
+    "ツアー会社", "ツアー企画",
+]
+
+# HR専業サイトのネガティブキーワード（誤検知防止）
+# 注: 「採用情報」は一般企業も持つので除外。HR「サービス」として特化した会社のみ対象。
+NEGATIVE_KEYWORDS = [
+    "転職サービス", "求人サービス", "採用支援サービス",
+    "人材紹介サービス", "人材派遣サービス",
+    "就職支援サービス",
 ]
 
 # --- 条件D: タイトルに宿泊業名 ---
@@ -188,6 +205,9 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
     met_conditions: list[str] = []
     evidence: list[str] = []
 
+    # --- ネガティブチェック: 採用・HR系サイトは除外 ---
+    is_hr_site = bool(_contains_any(full_text, NEGATIVE_KEYWORDS))
+
     # --- 条件A: インバウンド事業の明示宣言 ---
     matched_a = _contains_any(full_text, CONDITION_A_KEYWORDS)
     if matched_a:
@@ -206,10 +226,13 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
 
     # --- 条件C: 観光・宿泊業 × 多言語対応 ---
     matched_c_industry = _contains_any(full_text, CONDITION_C_INDUSTRY_KEYWORDS)
+    matched_c_generic = _contains_any(full_text, CONDITION_C_GENERIC_KEYWORDS)
+    # 汎用キーワードのみの場合は2件以上必要
+    effective_c_industry = matched_c_industry or len(matched_c_generic) >= 2
     has_multilingual = _has_multilingual_support(data)
-    if matched_c_industry and has_multilingual:
+    if effective_c_industry and has_multilingual and not is_hr_site:
         met_conditions.append("C:観光業×多言語対応")
-        evidence.extend(matched_c_industry[:2])
+        evidence.extend(matched_c_industry[:2] or matched_c_generic[:2])
         non_ja = [l for l in data.hreflang_langs if l.lower() not in ("ja", "x-default")]
         if non_ja:
             evidence.append(f"hreflang:{','.join(non_ja)}")
@@ -239,10 +262,20 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
             met_conditions.append("E:複数観光プラットフォーム掲載")
             evidence.extend(matched_e[:3])
 
-    # --- 条件G: 言語サブページが存在する ---
-    if data.found_language_subpages:
-        met_conditions.append(f"G:言語サブページ({','.join(data.found_language_subpages[:3])})")
-        evidence.extend(data.found_language_subpages[:3])
+    # --- 条件G: 言語サブページ × 観光・宿泊業種 ---
+    # 大企業も英語ページを持つため、観光業種との組み合わせを必須とする
+    # ただし /zh/ /ko/ など日本語以外の東アジア言語ページは訪日外国人向けとして単独可
+    if data.found_language_subpages and not is_hr_site:
+        inbound_lang_paths = [p for p in data.found_language_subpages
+                              if any(seg in p for seg in ["/zh", "/ko", "/chinese", "/korean"])]
+        if inbound_lang_paths:
+            # 中国語・韓国語サブページは訪日インバウンド向けの強いシグナル（単独可）
+            met_conditions.append(f"G:アジア言語サブページ({','.join(inbound_lang_paths[:3])})")
+            evidence.extend(inbound_lang_paths[:3])
+        elif effective_c_industry:
+            # 英語サブページは観光業種との組み合わせでのみ判定
+            met_conditions.append(f"G:観光業×言語サブページ({','.join(data.found_language_subpages[:3])})")
+            evidence.extend(data.found_language_subpages[:3])
 
     # --- 条件F: 観光業種 × 英語テキストが豊富 ---
     if matched_c_industry and not met_conditions:
