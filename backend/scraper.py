@@ -35,7 +35,7 @@ LANGUAGE_SWITCH_PATTERNS = re.compile(
 )
 
 
-async def _check_language_subpages(base_url: str, semaphore: asyncio.Semaphore) -> list[str]:
+async def _check_language_subpages(base_url: str) -> list[str]:
     """
     ベースURLに対して言語別サブパスが存在するか並列チェックする。
     リダイレクト先が別ドメインの場合はカウントしない。
@@ -43,12 +43,13 @@ async def _check_language_subpages(base_url: str, semaphore: asyncio.Semaphore) 
     """
     from urllib.parse import urlparse
 
+    subpage_sem = asyncio.Semaphore(20)  # 専用セマフォ（メインと別）
     base_parsed = urlparse(base_url)
     base_domain = base_parsed.netloc
 
     async def check_one(path: str) -> Optional[str]:
         target_url = f"{base_parsed.scheme}://{base_domain}{path}"
-        async with semaphore:
+        async with subpage_sem:
             try:
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(5.0),
@@ -252,20 +253,20 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
                 if has_language_switcher:
                     break
 
-        # サブページ言語チェック（並列実行）
-        found_language_subpages = await _check_language_subpages(url, semaphore)
+    # semaphore を解放した後でサブページチェック（semaphore 競合なし）
+    found_language_subpages = await _check_language_subpages(url)
 
-        return ScrapedData(
-            url=url,
-            title=title,
-            meta_description=meta_desc,
-            meta_keywords=meta_keywords,
-            og_description=og_desc,
-            hreflang_langs=hreflang_langs,
-            body_text=body_text,
-            nav_header_text=nav_header_text,
-            html_lang=html_lang,
-            has_google_translate=has_google_translate,
-            has_language_switcher=has_language_switcher,
-            found_language_subpages=found_language_subpages,
-        ), "success"
+    return ScrapedData(
+        url=url,
+        title=title,
+        meta_description=meta_desc,
+        meta_keywords=meta_keywords,
+        og_description=og_desc,
+        hreflang_langs=hreflang_langs,
+        body_text=body_text,
+        nav_header_text=nav_header_text,
+        html_lang=html_lang,
+        has_google_translate=has_google_translate,
+        has_language_switcher=has_language_switcher,
+        found_language_subpages=found_language_subpages,
+    ), "success"
