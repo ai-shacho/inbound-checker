@@ -30,6 +30,23 @@ interface ProgressEvent {
   elapsed_seconds: number;
 }
 
+const BATCH_SIZE = 100;
+
+const generateCSV = (data: ScoringResult[], withBOM = true): string => {
+  const header = "url,company_name,classification,score,matched_keywords,hreflang_langs,processed_at";
+  const rows = data.map(r => [
+    r.url,
+    `"${(r.company_name || "").replace(/"/g, '""')}"`,
+    r.classification,
+    r.score,
+    `"${r.matched_keywords.slice(0, 5).join(",")}"`,
+    `"${(r.hreflang_langs || []).join(",")}"`,
+    r.processed_at
+  ].join(","));
+  const csv = [header, ...rows].join("\n");
+  return withBOM ? "\uFEFF" + csv : csv;
+};
+
 export default function Home() {
   const [urlText, setUrlText] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -38,6 +55,10 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string>("");
   const [isDone, setIsDone] = useState<boolean>(false);
   const [apiStatus, setApiStatus] = useState<"checking" | "ok" | "error">("checking");
+  const [totalProcessed, setTotalProcessed] = useState<number>(0);
+  const [currentBatch, setCurrentBatch] = useState<number>(0);
+  const [totalBatches, setTotalBatches] = useState<number>(0);
+  const [grandTotal, setGrandTotal] = useState<number>(0);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -72,69 +93,116 @@ export default function Home() {
 
     if (urls.length === 0) return;
 
+    // バッチ分割
+    const batches: string[][] = [];
+    for (let i = 0; i < urls.length; i += BATCH_SIZE) {
+      batches.push(urls.slice(i, i + BATCH_SIZE));
+    }
+    const numBatches = batches.length;
+
     setIsProcessing(true);
     setResults([]);
     setProgress(null);
     setIsDone(false);
     setSessionId("");
+    setTotalProcessed(0);
+    setCurrentBatch(0);
+    setTotalBatches(numBatches);
+    setGrandTotal(urls.length);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
+    let allResults: ScoringResult[] = [];
+    let lastElapsed = 0;
+
     try {
-      const response = await fetch(`${API_URL}/api/judge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls }),
-        signal: controller.signal,
-      });
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        if (controller.signal.aborted) break;
 
-      if (!response.ok || !response.body) {
-        throw new Error("APIリクエストに失敗しました");
-      }
+        const batchUrls = batches[batchIdx];
+        setCurrentBatch(batchIdx + 1);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+        const response = await fetch(`${API_URL}/api/judge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urls: batchUrls }),
+          signal: controller.signal,
+        });
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        if (!response.ok || !response.body) {
+          throw new Error("APIリクエストに失敗しました");
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-          try {
-            const event = JSON.parse(jsonStr);
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-            if (event.session_id && !event.done) {
-              setSessionId(event.session_id);
-              continue;
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+
+            try {
+              const event = JSON.parse(jsonStr);
+
+              if (event.session_id && !event.done) {
+                setSessionId(event.session_id);
+                continue;
+              }
+
+              const progressEvent = event as ProgressEvent;
+
+              if (progressEvent.result) {
+                allResults = [...allResults, progressEvent.result];
+                setResults(allResults);
+              }
+
+              lastElapsed = progressEvent.elapsed_seconds;
+
+              // 全体進捗を計算
+              const batchCompletedSoFar = batchIdx * BATCH_SIZE;
+              const overallCompleted = batchCompletedSoFar + progressEvent.completed;
+              const overallInbound = allResults.filter(r => r.classification === "インバウンド").length;
+
+              setTotalProcessed(overallCompleted);
+              setProgress({
+                ...progressEvent,
+                completed: overallCompleted,
+                total: urls.length,
+                inbound_count: overallInbound,
+                done: false,
+              });
+
+            } catch {
+              // JSONパースエラーは無視
             }
-
-            const progressEvent = event as ProgressEvent;
-
-            if (progressEvent.result) {
-              setResults((prev) => [...prev, progressEvent.result!]);
-            }
-
-            setProgress(progressEvent);
-
-            if (progressEvent.done) {
-              setIsDone(true);
-              setIsProcessing(false);
-            }
-          } catch {
-            // JSONパースエラーは無視
           }
         }
       }
+
+      // 全バッチ完了
+      setIsDone(true);
+      setIsProcessing(false);
+      const overallInbound = allResults.filter(r => r.classification === "インバウンド").length;
+      setProgress({
+        completed: allResults.length,
+        total: urls.length,
+        inbound_count: overallInbound,
+        current_url: "",
+        result: null,
+        done: true,
+        elapsed_seconds: lastElapsed,
+      });
+
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") {
         // キャンセル
@@ -159,13 +227,27 @@ export default function Home() {
     setIsProcessing(false);
   }, [sessionId]);
 
-  // CSVダウンロード
+  // CSVダウンロード（クライアントサイド生成）
   const handleDownload = useCallback(
     (fileType: string) => {
-      if (!sessionId) return;
-      window.open(`${API_URL}/api/csv/${sessionId}/${fileType}`, "_blank");
+      let data: ScoringResult[];
+      if (fileType === "inbound") {
+        data = results.filter(r => r.classification === "インバウンド");
+      } else if (fileType === "non_inbound") {
+        data = results.filter(r => r.classification === "非インバウンド");
+      } else {
+        data = results;
+      }
+      const csv = generateCSV(data);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileType}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
     },
-    [sessionId]
+    [results]
   );
 
   // バッジの色
@@ -273,17 +355,22 @@ export default function Home() {
         {/* 進捗バー */}
         {isProcessing && progress && (
           <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
-            <div className="flex justify-between text-sm text-gray-600 mb-2">
+            <div className="flex justify-between text-sm text-gray-600 mb-1">
               <span>
-                {progress.completed}件完了 / {progress.total}件中（インバウンド：{progress.inbound_count}件）
+                {totalProcessed}件完了 / {grandTotal}件中（インバウンド：{progress.inbound_count}件）
               </span>
               <span>{progress.elapsed_seconds}秒</span>
             </div>
+            {totalBatches > 1 && (
+              <div className="text-xs text-blue-600 mb-2">
+                バッチ {currentBatch}/{totalBatches} 処理中
+              </div>
+            )}
             <div className="w-full bg-gray-200 rounded-full h-3">
               <div
                 className="bg-blue-500 h-3 rounded-full transition-all duration-300"
                 style={{
-                  width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%`,
+                  width: `${grandTotal > 0 ? (totalProcessed / grandTotal) * 100 : 0}%`,
                 }}
               />
             </div>
