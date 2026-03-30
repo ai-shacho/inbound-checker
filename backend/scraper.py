@@ -256,6 +256,14 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
     # semaphore を解放した後でサブページチェック（semaphore 競合なし）
     found_language_subpages = await _check_language_subpages(url)
 
+    # og:locale:alternate の検出（多言語対応の追加シグナル）
+    has_og_locale_alternate = False
+    for og_tag in soup.find_all("meta", property="og:locale:alternate"):
+        content = og_tag.get("content", "")
+        if content and content.lower() not in ("ja_jp", "ja"):
+            has_og_locale_alternate = True
+            break
+
     return ScrapedData(
         url=url,
         title=title,
@@ -269,4 +277,5 @@ async def scrape_url(url: str, semaphore: asyncio.Semaphore) -> tuple[Optional[S
         has_google_translate=has_google_translate,
         has_language_switcher=has_language_switcher,
         found_language_subpages=found_language_subpages,
+        has_og_locale_alternate=has_og_locale_alternate,
     ), "success"

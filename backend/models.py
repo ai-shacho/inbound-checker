@@ -22,6 +22,7 @@ class ScrapedData(BaseModel):
     has_google_translate: bool = False
     has_language_switcher: bool = False
     found_language_subpages: list[str] = []  # 存在した言語サブパス一覧
+    has_og_locale_alternate: bool = False    # og:locale:alternate が日本語以外に設定されている
 
 
 class ScoringResult(BaseModel):

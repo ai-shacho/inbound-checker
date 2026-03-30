@@ -103,6 +103,18 @@ NEGATIVE_KEYWORDS = [
     "就職支援サービス",
 ]
 
+# インバウンド支援・コンサル系の除外キーワード（最優先）
+# 訪日外国人に直接サービスを提供するのではなく、支援・マーケティングが主事業の会社を除外する
+EXCLUSION_KEYWORDS = [
+    "インバウンドマーケティング", "インバウンド支援", "インバウンド対策支援",
+    "インバウンドコンサル", "インバウンドコンサルティング", "インバウンド集客支援",
+    "インバウンドプロモーション", "インバウンド向けマーケティング",
+    "インバウンド誘致支援", "インバウンド対応支援", "インバウンド施策支援",
+    "観光誘致支援", "観光プロモーション支援", "観光マーケティング支援",
+    "訪日プロモーション支援", "訪日マーケティング支援",
+    "inbound marketing", "inbound consulting",
+]
+
 # --- 条件D: タイトルに宿泊業名 ---
 CONDITION_D_TITLE_KEYWORDS = [
     "ホテル", "旅館", "ゲストハウス", "ホステル", "民泊",
@@ -171,6 +183,9 @@ def _has_multilingual_support(data: ScrapedData) -> bool:
     hangul_chars = HANGUL_RANGE.findall(data.body_text)
     if len(hangul_chars) >= 10:
         return True
+    # og:locale:alternate が日本語以外に設定されている
+    if data.has_og_locale_alternate:
+        return True
     return False
 
 
@@ -204,6 +219,26 @@ def calculate_score(data: ScrapedData, threshold: int = 0) -> ScoringResult:
 
     met_conditions: list[str] = []
     evidence: list[str] = []
+
+    # --- 除外フィルター（最優先）: インバウンド支援・コンサル系は非インバウンドとして即返す ---
+    full_text_lower = full_text.lower()
+    if any(kw.lower() in full_text_lower for kw in EXCLUSION_KEYWORDS):
+        company_name = data.title
+        for sep in ["|", "｜", " - ", "–", "—", "：", ":"]:
+            if sep in company_name:
+                company_name = company_name.split(sep)[0].strip()
+                break
+        return ScoringResult(
+            url=data.url,
+            company_name=company_name,
+            classification="非インバウンド",
+            score=0,
+            matched_keywords=["[除外:支援・コンサル系]"],
+            met_conditions=[],
+            hreflang_langs=data.hreflang_langs,
+            processed_at=now,
+            status="success"
+        )
 
     # --- ネガティブチェック: 採用・HR系サイトは除外 ---
     is_hr_site = bool(_contains_any(full_text, NEGATIVE_KEYWORDS))
