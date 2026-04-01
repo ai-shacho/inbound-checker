@@ -74,14 +74,26 @@ export default function Home() {
   const timeoutCount = results.filter((r) => r.status === "timeout").length;
   const spaCount = results.filter((r) => r.status === "spa").length;
 
-  // コールドスタート対策
+  // コールドスタート対策（Renderスリープ起動に最大60秒かかる場合あり）
   useEffect(() => {
-    fetch(`${API_URL}/health`)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 70000); // 70秒タイムアウト
+
+    fetch(`${API_URL}/health`, { signal: controller.signal })
       .then((res) => {
+        clearTimeout(timeoutId);
         if (res.ok) setApiStatus("ok");
         else setApiStatus("error");
       })
-      .catch(() => setApiStatus("error"));
+      .catch(() => {
+        clearTimeout(timeoutId);
+        setApiStatus("error");
+      });
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, []);
 
   // 判定開始
@@ -303,12 +315,12 @@ export default function Home() {
         {/* APIステータス */}
         {apiStatus === "checking" && (
           <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded text-sm text-center">
-            APIサーバーに接続中...
+            🔄 APIサーバー起動中...（初回アクセス時は最大1分かかる場合があります）
           </div>
         )}
         {apiStatus === "error" && (
           <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm text-center">
-            APIサーバーに接続できません。しばらく待ってからリロードしてください。
+            ❌ APIサーバーに接続できません。ページをリロードしてください。
           </div>
         )}
 
