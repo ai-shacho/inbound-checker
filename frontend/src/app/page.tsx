@@ -31,6 +31,7 @@ interface ProgressEvent {
 }
 
 const BATCH_SIZE = 100;
+const MAX_URLS = 3000;
 
 const generateCSV = (data: ScoringResult[], withBOM = true): string => {
   const header = "url,company_name,classification,score,matched_keywords,hreflang_langs,processed_at";
@@ -89,7 +90,7 @@ export default function Home() {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
-      .slice(0, 1000);
+      .slice(0, MAX_URLS);
 
     if (urls.length === 0) return;
 
@@ -314,7 +315,7 @@ export default function Home() {
         {/* URL入力エリア */}
         <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            URLを1行1件で入力してください（最大1000件）
+            URLを1行1件で入力してください（最大3,000件）
           </label>
           <textarea
             className="w-full h-[300px] border border-gray-300 rounded-lg p-3 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
@@ -325,8 +326,8 @@ export default function Home() {
           />
           <div className="mt-2 text-right text-sm text-gray-500">
             入力URL数：<span className="font-bold text-gray-700">{urlCount}</span> 件
-            {urlCount > 1000 && (
-              <span className="text-red-500 ml-2">（1000件を超えた分は無視されます）</span>
+            {urlCount > MAX_URLS && (
+              <span className="text-red-500 ml-2">（3,000件を超えた分は無視されます）</span>
             )}
           </div>
         </div>
