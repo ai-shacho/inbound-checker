@@ -53,7 +53,7 @@ export default function Home() {
   const [results, setResults] = useState<ScoringResult[]>([]);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [sessionId, setSessionId] = useState<string>("");
-  const [isDone, setIsDone] = useState<boolean>(false);
+
   const [apiStatus, setApiStatus] = useState<"checking" | "ok" | "error">("checking");
   const [totalProcessed, setTotalProcessed] = useState<number>(0);
   const [currentBatch, setCurrentBatch] = useState<number>(0);
@@ -103,7 +103,6 @@ export default function Home() {
     setIsProcessing(true);
     setResults([]);
     setProgress(null);
-    setIsDone(false);
     setSessionId("");
     setTotalProcessed(0);
     setCurrentBatch(0);
@@ -190,7 +189,6 @@ export default function Home() {
       }
 
       // 全バッチ完了
-      setIsDone(true);
       setIsProcessing(false);
       const overallInbound = allResults.filter(r => r.classification === "インバウンド").length;
       setProgress({
@@ -383,7 +381,7 @@ export default function Home() {
         )}
 
         {/* サマリー */}
-        {isDone && (
+        {(!isProcessing && results.length > 0) && (
           <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
             <h2 className="text-lg font-bold mb-4">処理結果サマリー</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
